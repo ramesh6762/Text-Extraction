@@ -1,4 +1,5 @@
 streamlit
 easyocr
-numpy
+opencv-python-headless
 pillow
+numpy
