@@ -4,38 +4,109 @@ import numpy as np
 import easyocr
 import cv2
 
-# Page config
-st.set_page_config(page_title="OCR App")
-st.title("Text Recognition")
+# -----------------------------
+# Page Config
+# -----------------------------
+st.set_page_config(page_title="OCR App", layout="wide")
+st.title("📝 Text Recognition (EasyOCR)")
 
-# Upload image
-uploaded_file = st.file_uploader("Upload an Image", type=["png", "jpg", "jpeg"], key="upload1")
+# -----------------------------
+# Load EasyOCR (Cached)
+# -----------------------------
+@st.cache_resource
+def load_reader():
+    return easyocr.Reader(['en'], gpu=False)
+
+reader = load_reader()
+
+# -----------------------------
+# Upload Image
+# -----------------------------
+uploaded_file = st.file_uploader(
+    "Upload an Image",
+    type=["png", "jpg", "jpeg"],
+    key="upload1"
+)
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption='Uploaded Image', use_container_width=True)
 
-    if st.button("Extract Text"):
+    # 🔥 Resize (prevents memory crash on cloud)
+    image = image.resize((800, int(800 * image.height / image.width)))
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Original Image")
+        st.image(image, width="stretch")
+
+    # -----------------------------
+    # OCR Button
+    # -----------------------------
+    if st.button("🚀 Extract Text"):
         with st.spinner("Running OCR..."):
-            reader = easyocr.Reader(['en'], gpu=False)
-            result = reader.readtext(np.array(image))
+            try:
+                image_np = np.array(image)
 
-            image_np = np.array(image)
-            image_cv = image_np.copy()
+                # Run OCR
+                results = reader.readtext(image_np)
 
-            # Draw boxes and labels
-            for (bbox, text, conf) in result:
-                top_left = tuple(map(int, bbox[0]))
-                bottom_right = tuple(map(int, bbox[2]))
-                cv2.rectangle(image_cv, top_left, bottom_right, (0, 255, 0), 2)
-                cv2.putText(image_cv, text, (top_left[0], top_left[1] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (238, 130, 238), 2)
+                # Draw boxes
+                annotated = image_np.copy()
 
-        # Show result image
-        st.subheader("Detected Text with Bounding Boxes:")
-        st.image(image_cv, caption="Detected Text", use_container_width=True)
+                extracted_text = []
 
-        # Show raw text
-        st.subheader("Extracted Text:")
-        for i, (_, text, conf) in enumerate(result):
-            st.markdown(f"**{i+1}.** `{text}` (Confidence: `{conf:.2f}`)")
+                for (bbox, text, conf) in results:
+                    top_left = tuple(map(int, bbox[0]))
+                    bottom_right = tuple(map(int, bbox[2]))
+
+                    # Draw rectangle
+                    cv2.rectangle(annotated, top_left, bottom_right, (0, 255, 0), 2)
+
+                    # Label
+                    label = f"{text} ({conf:.0%})"
+                    cv2.putText(
+                        annotated,
+                        label,
+                        (top_left[0], max(top_left[1] - 10, 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (238, 130, 238),
+                        2
+                    )
+
+                    extracted_text.append((text, conf))
+
+                # -----------------------------
+                # Show Annotated Image
+                # -----------------------------
+                with col2:
+                    st.subheader("Detected Text")
+                    st.image(annotated, width="stretch")
+
+                # -----------------------------
+                # Show Text Output
+                # -----------------------------
+                st.subheader("📄 Extracted Text")
+
+                if extracted_text:
+                    for i, (text, conf) in enumerate(extracted_text, 1):
+                        color = "green" if conf > 0.75 else ("orange" if conf > 0.5 else "red")
+                        st.markdown(
+                            f"**{i}.** `{text}` — <span style='color:{color}'>{conf:.2f}</span>",
+                            unsafe_allow_html=True
+                        )
+
+                    # Download button
+                    full_text = "\n".join([t for t, _ in extracted_text])
+                    st.download_button(
+                        "⬇ Download Text",
+                        data=full_text,
+                        file_name="extracted_text.txt",
+                        mime="text/plain"
+                    )
+                else:
+                    st.warning("No text detected.")
+
+            except Exception as e:
+                st.error(f"❌ Error occurred: {e}")
